@@ -145,8 +145,10 @@ export default function TebakKataPage() {
   const currentPlayer = players[currentPlayerIdx] ?? 'Pemain';
 
   /* ── Render ───────────────────────────────────────────────── */
+  const isFullscreen = screen === 'gameplay' || screen === 'rotate';
+
   return (
-    <div className="max-w-md mx-auto min-h-screen bg-[#121212] overflow-hidden">
+    <div className={`${isFullscreen ? 'w-full' : 'max-w-md mx-auto'} min-h-screen bg-[#121212] overflow-hidden`}>
       <AnimatePresence mode="wait">
         {screen === 'home' && (
           <motion.div key="home" variants={variants} initial="initial" animate="animate" exit="exit"

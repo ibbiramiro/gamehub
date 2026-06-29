@@ -27,6 +27,7 @@ export default function GameplayScreen({
   const [results, setResults]           = useState<WordResult[]>([]);
   const [flash, setFlash]               = useState<FlashState>('none');
   const [showWord, setShowWord]         = useState(true);
+  const [activeWords, setActiveWords]   = useState<string[]>(words);
 
   const cooldownRef = useRef(false);
   const endCalledRef = useRef(false);
@@ -47,9 +48,15 @@ export default function GameplayScreen({
       if (cooldownRef.current) return;
       cooldownRef.current = true;
 
-      const word = words[currentIndex];
+      const word = activeWords[currentIndex];
       const newResults = [...results, { word, status }];
       setResults(newResults);
+
+      let nextWords = activeWords;
+      if (status === 'pass') {
+        nextWords = [...activeWords, word];
+        setActiveWords(nextWords);
+      }
 
       // Flash
       setFlash(status);
@@ -59,7 +66,7 @@ export default function GameplayScreen({
       setShowWord(false);
       setTimeout(() => {
         const nextIndex = currentIndex + 1;
-        if (nextIndex >= words.length) {
+        if (nextIndex >= nextWords.length) {
           endGame(newResults);
         } else {
           setCurrentIndex(nextIndex);
@@ -68,7 +75,7 @@ export default function GameplayScreen({
         cooldownRef.current = false;
       }, 300);
     },
-    [currentIndex, results, words, endGame],
+    [currentIndex, results, activeWords, endGame],
   );
 
   /* ── Timer countdown ────────────────────────────────────────── */
@@ -108,22 +115,16 @@ export default function GameplayScreen({
       }
 
       function handler(e: DeviceMotionEvent) {
-        // Menggunakan accelerometer (termasuk gravitasi) lebih stabil untuk landscape.
         const x = e.accelerationIncludingGravity?.x ?? 0;
         const y = e.accelerationIncludingGravity?.y ?? 0;
         const z = e.accelerationIncludingGravity?.z ?? 0;
 
         const absY = Math.abs(y);
-        const absZ = Math.abs(z);
 
-        // Posisi standar HP Landscape menghadap muka:
-        // X = ~9.8 (gravitasi menarik sisi bawah/atas HP ke tanah)
-        // Y = ~0 (sisi panjang HP sejajar tanah)
-        // Z = ~0 (layar menghadap ke muka)
-
-        // Benar: Flip ke bawah (hadapan ke lantai)
-        // Saat layar menghadap lantai, gravitasi berpindah ke sumbu Z.
-        if (absZ > 6.0) {
+        // Benar: Flip ke bawah (layar hadap lantai/hidung)
+        // Layar menghadap lantai berarti sumbu Z mengarah ke atas (melawan gravitasi).
+        // z akan mendekati -9.8. Kita gunakan z < -8.0 agar benar-benar harus menghadap bawah.
+        if (z < -8.0) {
           advance('correct');
         } 
         // Pass: Geser/Tilt Kiri Kanan (seperti setir mobil)
@@ -153,7 +154,7 @@ export default function GameplayScreen({
 
   /* ── Derived ─────────────────────────────────────────────────── */
   const progress    = timeLeft / duration;
-  const wordCount   = `${results.length + 1}/${words.length}`;
+  const wordCount   = `${results.length + 1}/${activeWords.length}`;
   const minutes     = Math.floor(timeLeft / 60).toString().padStart(2, '0');
   const seconds     = (timeLeft % 60).toString().padStart(2, '0');
   const timerStr    = `${minutes}:${seconds}`;
