@@ -100,12 +100,20 @@ export default function GameplayScreen({
       }
 
       function handler(e: DeviceOrientationEvent) {
-        const beta  = e.beta  ?? 0;   // front-back tilt (−180 to 180)
-        const gamma = e.gamma ?? 0;   // left-right tilt (−90 to 90)
+        const beta  = e.beta  ?? 90;  // Default upright
+        const gamma = e.gamma ?? 0;   // Default flat
 
-        if (Math.abs(beta) > TILT_THRESHOLD) {
+        // In Portrait mode:
+        // Upright: beta is around 90, gamma is around 0.
+        // Tilted up/down (face up or face down): beta goes towards 0 or 180.
+        // Tilted left/right: gamma goes towards -90 or 90.
+        
+        const isTiltedUpOrDown = beta < 45 || beta > 135;
+        const isTiltedLeftOrRight = gamma < -45 || gamma > 45;
+
+        if (isTiltedUpOrDown) {
           advance('correct');
-        } else if (Math.abs(gamma) > TILT_THRESHOLD) {
+        } else if (isTiltedLeftOrRight) {
           advance('pass');
         }
       }
