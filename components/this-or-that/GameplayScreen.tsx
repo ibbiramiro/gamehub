@@ -5,11 +5,19 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Home, BarChart2, User, ArrowRight } from 'lucide-react';
 import { ElectricHeader } from './SetupScreen';
 import type { QuestionPair, Player } from '@/lib/this-or-that/gameData';
+import { supabase } from '@/lib/supabase';
+import { updateTotSessionStatus, resetAllVotes } from '@/lib/this-or-that/totSupabase';
+
+export interface VoteResult {
+  question: QuestionPair;
+  tally: VoteTally;
+}
 
 interface GameplayScreenProps {
+  sessionId: string;
   pairs: QuestionPair[];
   players: Player[];
-  onFinish: () => void;
+  onFinish: (results: VoteResult[]) => void;
 }
 
 interface VoteTally {
@@ -19,56 +27,84 @@ interface VoteTally {
 }
 
 /* ─── Component ─────────────────────────────────────────────────── */
-export default function GameplayScreen({ pairs, players, onFinish }: GameplayScreenProps) {
+export default function GameplayScreen({ sessionId, pairs, players, onFinish }: GameplayScreenProps) {
   const [qIndex, setQIndex] = useState(0);
   const [tally, setTally]   = useState<VoteTally>({ votes1: 0, votes2: 0, total: 0 });
   const [allVoted, setAllVoted] = useState(false);
-  const [activeTab, setActiveTab] = useState<'home' | 'ranks' | 'profile'>('home');
-  const simulateRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const [results, setResults] = useState<VoteResult[]>([]);
 
   const pair        = pairs[qIndex];
   const totalPairs  = pairs.length;
   const progress    = ((qIndex) / totalPairs) * 100;
+  
+  const connectedCount = players.length > 0 ? players.length : 1; // Fallback to 1 if no players (testing mode)
 
-  /* ── Simulate votes coming in over ~3 seconds ───────────────── */
-  const simulateVotes = useCallback(() => {
+  /* ── Subscribe to votes ───────────────── */
+  useEffect(() => {
+    // Reset local tally
     setTally({ votes1: 0, votes2: 0, total: 0 });
     setAllVoted(false);
-
-    // Clear previous timers
-    simulateRef.current.forEach(clearTimeout);
-    simulateRef.current = [];
-
-    const n = players.length || 5;
-    const delays = Array.from({ length: n }, (_, i) =>
-      500 + Math.floor(Math.random() * 3000 * (i + 1) / n),
-    ).sort((a, b) => a - b);
-
-    delays.forEach((delay, i) => {
-      const t = setTimeout(() => {
-        const vote = Math.random() > 0.4 ? 1 : 2; // bias toward option 1
-        setTally(prev => {
-          const v1 = prev.votes1 + (vote === 1 ? 1 : 0);
-          const v2 = prev.votes2 + (vote === 2 ? 1 : 0);
-          const total = v1 + v2;
-          if (total >= n) setAllVoted(true);
-          return { votes1: v1, votes2: v2, total };
+    
+    // Fetch initial votes for this question
+    const fetchVotes = async () => {
+      const { data } = await supabase
+        .from('tot_players')
+        .select('current_vote')
+        .eq('session_id', sessionId);
+        
+      if (data) {
+        let v1 = 0; let v2 = 0;
+        data.forEach(p => {
+          if (p.current_vote === 'A') v1++;
+          if (p.current_vote === 'B') v2++;
         });
-      }, delay);
-      simulateRef.current.push(t);
-    });
-  }, [players.length]);
+        const total = v1 + v2;
+        setTally({ votes1: v1, votes2: v2, total });
+        if (total >= connectedCount) setAllVoted(true);
+      }
+    };
+    fetchVotes();
 
-  useEffect(() => {
-    simulateVotes();
-    return () => simulateRef.current.forEach(clearTimeout);
-  }, [qIndex, simulateVotes]);
+    const channel = supabase.channel(`tot_votes_${sessionId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'tot_players', filter: `session_id=eq.${sessionId}` },
+        (payload) => {
+          // Re-calculate all votes on update to avoid complex state tracking
+          fetchVotes();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [qIndex, sessionId, connectedCount]);
 
   /* ── Next question ───────────────────────────────────────────── */
-  function handleNext() {
-    if (qIndex + 1 >= totalPairs) { onFinish(); return; }
-    setQIndex(i => i + 1);
+  async function handleNext() {
+    const newResults = [...results, { question: pair, tally }];
+    setResults(newResults);
+
+    if (qIndex + 1 >= totalPairs) { 
+      onFinish(newResults); 
+      return; 
+    }
+    const nextIndex = qIndex + 1;
+    await resetAllVotes(sessionId);
+    await updateTotSessionStatus(sessionId, 'playing', nextIndex);
+    setQIndex(nextIndex);
   }
+
+  // Auto-next after 3 seconds when all players have voted
+  useEffect(() => {
+    if (allVoted) {
+      const timer = setTimeout(() => {
+        handleNext();
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [allVoted, handleNext]);
 
   /* ── Percentage maths ───────────────────────────────────────── */
   const total = tally.total || 1;
@@ -141,66 +177,19 @@ export default function GameplayScreen({ pairs, players, onFinish }: GameplayScr
         </motion.div>
       </AnimatePresence>
 
-      {/* ── Footer ───────────────────────────────────────────── */}
-      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md z-30">
-        {/* Bottom nav */}
-        <nav className="bg-[#1A1A1A] border-t border-gray-800">
-          <div className="flex items-center justify-around px-2 py-2">
-            {(
-              [
-                { id: 'home' as const,    Icon: Home,       label: 'Home'    },
-                { id: 'ranks' as const,   Icon: BarChart2,  label: 'Ranks'   },
-                { id: 'profile' as const, Icon: User,       label: 'Profile' },
-              ] as const
-            ).map(({ id, Icon, label }) => {
-              const isActive = activeTab === id;
-              return (
-                <button
-                  key={id}
-                  id={`nav-gp-${id}`}
-                  onClick={() => setActiveTab(id)}
-                  className={`flex flex-col items-center gap-1 px-6 py-2 rounded-xl transition-all
-                    ${isActive
-                      ? 'bg-[#C0F300] shadow-[0_0_12px_rgba(192,243,0,0.5)]'
-                      : 'text-gray-400 hover:text-gray-200'}`}
-                >
-                  <Icon className={`w-5 h-5 ${isActive ? 'text-black' : ''}`} strokeWidth={isActive ? 2.4 : 1.8} />
-                  <span className={`text-xs font-bold ${isActive ? 'text-black' : ''}`}>{label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </nav>
-
-        {/* "Next" button — appears only when all voted */}
-        <AnimatePresence>
-          {allVoted && (
-            <motion.div
-              initial={{ y: 80, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 80, opacity: 0 }}
-              className="absolute bottom-full left-0 right-0 px-4 pb-2"
-            >
-              <button
-                id="btn-next-question"
-                onClick={handleNext}
-                className="w-full py-3.5 rounded-2xl font-black text-sm uppercase tracking-widest
-                           text-black flex items-center justify-center gap-2
-                           transition-all duration-150 active:scale-95"
-                style={{
-                  backgroundColor: '#C0F300',
-                  boxShadow: '0 0 20px rgba(192,243,0,0.6)',
-                }}
-              >
-                {qIndex + 1 >= totalPairs
-                  ? '🏆 Lihat Hasil Akhir'
-                  : `Lanjut ke Pertanyaan Berikutnya`}
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+      {/* ── Auto-next countdown indicator (optional, minimal UI) ───────────────────────────────────────────── */}
+      <AnimatePresence>
+        {allVoted && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-[#C0F300] text-black px-6 py-2 rounded-full font-bold shadow-[0_0_15px_rgba(192,243,0,0.5)] z-40"
+          >
+            {qIndex + 1 >= totalPairs ? 'Selesai! Beralih...' : 'Melanjutkan otomatis...'}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

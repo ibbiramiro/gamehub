@@ -3,88 +3,68 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users } from 'lucide-react';
+import QRCode from 'react-qr-code';
 import { ElectricHeader } from './SetupScreen';
-import { DEMO_PLAYER_NAMES } from '@/lib/this-or-that/gameData';
 import type { Player } from '@/lib/this-or-that/gameData';
+import { supabase } from '@/lib/supabase';
 
 interface LobbyScreenProps {
   onStartVoting: (players: Player[]) => void;
-}
-
-/* ─── Simple inline QR Code SVG ────────────────────────────────── */
-function QRCodePlaceholder() {
-  // A convincing QR-code-like SVG pattern
-  const modules = [
-    '1111111011010110101011111110',
-    '1000001010100010110010000010',
-    '1011101011010011001010111010',
-    '1011101001100110110010111010',
-    '1011101011011001010110111010',
-    '1000001000110001100010000010',
-    '1111111010101010101011111110',
-    '0000000011001011010100000000',
-    '1101101110100011011111101100',
-    '0100010000111001001001001100',
-    '1011111110100001100111111110',
-    '0010100011001101001110001000',
-    '1001111001010010011001110110',
-    '0000000010110100100100000100',
-    '1111111010001011010110100010',
-    '1000001010101101001010100000',
-    '1011101010010010011110111100',
-    '1011101001001101100010111010',
-    '1011101011100001010010111010',
-    '1000001000011010100010000010',
-    '1111111010100101010111111110',
-  ];
-
-  const CELL = 10; // px per module
-  const N = modules[0].length;
-  const H = modules.length;
-
-  return (
-    <svg
-      viewBox={`0 0 ${N * CELL} ${H * CELL}`}
-      width="100%"
-      height="100%"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-label="QR Code"
-    >
-      <rect width={N * CELL} height={H * CELL} fill="white" />
-      {modules.map((row, ri) =>
-        row.split('').map((cell, ci) =>
-          cell === '1' ? (
-            <rect
-              key={`${ri}-${ci}`}
-              x={ci * CELL}
-              y={ri * CELL}
-              width={CELL}
-              height={CELL}
-              fill="#000000"
-            />
-          ) : null,
-        ),
-      )}
-    </svg>
-  );
+  sessionId: string;
 }
 
 /* ─── Component ─────────────────────────────────────────────────── */
-export default function LobbyScreen({ onStartVoting }: LobbyScreenProps) {
+export default function LobbyScreen({ onStartVoting, sessionId }: LobbyScreenProps) {
   const [players, setPlayers] = useState<Player[]>([]);
+  const [joinUrl, setJoinUrl] = useState<string>('');
 
-  /* Simulate players joining one by one */
+  // 1. Setup join URL (use window.location.host for local IP)
   useEffect(() => {
-    const names = DEMO_PLAYER_NAMES.slice(0, 5);
-    names.forEach((name, i) => {
-      setTimeout(() => {
-        setPlayers(prev => [
-          ...prev,
-          { id: String(i + 1), name, voted: false, vote: null },
-        ]);
-      }, (i + 1) * 1200);
-    });
-  }, []);
+    if (typeof window !== 'undefined') {
+      const url = `${window.location.protocol}//${window.location.host}/this-or-that/play/${sessionId}`;
+      setJoinUrl(url);
+    }
+  }, [sessionId]);
+
+  // 2. Subscribe to real-time player joins
+  useEffect(() => {
+    // Fetch existing players just in case
+    const fetchPlayers = async () => {
+      const { data } = await supabase
+        .from('tot_players')
+        .select('*')
+        .eq('session_id', sessionId);
+        
+      if (data) {
+        const existing: Player[] = data.map(p => ({
+          id: p.id,
+          name: p.name,
+          voted: false,
+          vote: null
+        }));
+        setPlayers(existing);
+      }
+    };
+    fetchPlayers();
+
+    // Subscribe to new players
+    const channel = supabase.channel(`tot_players_${sessionId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'tot_players', filter: `session_id=eq.${sessionId}` },
+        (payload) => {
+          setPlayers((prev) => [
+            ...prev,
+            { id: payload.new.id, name: payload.new.name, voted: false, vote: null }
+          ]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [sessionId]);
 
   const connected = players.length;
   const canStart  = connected > 0;
@@ -99,27 +79,33 @@ export default function LobbyScreen({ onStartVoting }: LobbyScreenProps) {
           <h2 className="text-3xl font-black text-white uppercase tracking-tight leading-tight">
             Scan Untuk<br />Bergabung
           </h2>
-          <p className="text-gray-500 text-sm mt-1">Tunjukkan QR code ini ke semua pemain</p>
+          <p className="text-gray-400 text-sm mt-2 font-medium">
+            Tunjukkan QR code ini ke semua pemain
+          </p>
         </div>
 
-        {/* QR Code Card */}
+        {/* Real QR Code */}
         <motion.div
-          initial={{ opacity: 0, scale: 0.85 }}
-          animate={{ opacity: 1, scale: 1 }}
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
           transition={{ type: 'spring', stiffness: 200, damping: 20 }}
           className="relative rounded-2xl overflow-hidden border-2 border-[#C0F300]
-                     shadow-[0_0_30px_rgba(192,243,0,0.45)] bg-white"
+                     shadow-[0_0_30px_rgba(192,243,0,0.45)] bg-white p-4"
           style={{ width: 220, height: 220 }}
         >
-          <QRCodePlaceholder />
+          {joinUrl ? (
+            <QRCode value={joinUrl} size={184} style={{ height: "auto", maxWidth: "100%", width: "100%" }} />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-black">Memuat...</div>
+          )}
         </motion.div>
 
-        {/* Join link */}
+        {/* Join link text */}
         <div className="text-center">
           <p className="text-gray-500 text-xs">atau buka:</p>
           <p className="text-[#C0F300] font-bold text-sm mt-0.5"
-            style={{ textShadow: '0 0 10px rgba(192,243,0,0.5)' }}>
-            electric.social/join
+             style={{ textShadow: '0 0 10px rgba(192,243,0,0.5)', wordBreak: 'break-all' }}>
+            {joinUrl.replace(/^https?:\/\//, '')}
           </p>
         </div>
 
