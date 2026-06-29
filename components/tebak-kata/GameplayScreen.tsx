@@ -81,49 +81,60 @@ export default function GameplayScreen({
     return () => clearTimeout(t);
   }, [timeLeft, results, endGame]);
 
-  /* ── DeviceOrientation (tilt) ───────────────────────────────── */
+  /* ── DeviceMotion (accelerometer for tilt) ───────────────────────────────── */
   useEffect(() => {
     async function requestAndListen() {
       // iOS 13+ requires permission
       if (
-        typeof DeviceOrientationEvent !== 'undefined' &&
-        // @ts-expect-error — requestPermission is iOS-only
-        typeof DeviceOrientationEvent.requestPermission === 'function'
+        typeof DeviceMotionEvent !== 'undefined' &&
+        // @ts-expect-error
+        typeof DeviceMotionEvent.requestPermission === 'function'
       ) {
         try {
           // @ts-expect-error
-          const perm = await DeviceOrientationEvent.requestPermission();
-          if (perm !== 'granted') return;
+          const perm = await DeviceMotionEvent.requestPermission();
+          if (perm !== 'granted') {
+            // Coba juga DeviceOrientation jika DeviceMotion gagal
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
+              const perm2 = await (DeviceOrientationEvent as any).requestPermission();
+              if (perm2 !== 'granted') return;
+            } else {
+              return;
+            }
+          }
         } catch {
           return;
         }
       }
 
-      function handler(e: DeviceOrientationEvent) {
-        const beta  = e.beta  ?? 90;
-        const gamma = e.gamma ?? 0;
+      function handler(e: DeviceMotionEvent) {
+        // Menggunakan accelerometer (termasuk gravitasi) lebih stabil untuk landscape.
+        const x = e.accelerationIncludingGravity?.x ?? 0;
+        const y = e.accelerationIncludingGravity?.y ?? 0;
+        const z = e.accelerationIncludingGravity?.z ?? 0;
 
-        const absBeta = Math.abs(beta);
-        const absGamma = Math.abs(gamma);
+        const absY = Math.abs(y);
+        const absZ = Math.abs(z);
 
-        // Benar (Atas/Bawah): pitch menjauh dari 90 derajat (tegak) 
-        // Harus miring > 50 derajat agar tidak terlalu sensitif.
-        const isTiltedUpOrDown = absBeta < 40 || absBeta > 140;
-        
-        // Pass (Kiri/Kanan): roll mendekati 90 derajat.
-        // Kita batasi < 135 untuk mencegah "Gimbal lock bug" di mana gamma 
-        // melompat ke 180 derajat saat hp sedikit miring ke depan/belakang.
-        const isTiltedLeftOrRight = absGamma > 45 && absGamma < 135;
+        // Posisi standar HP Landscape menghadap muka:
+        // X = ~9.8 (gravitasi menarik sisi bawah/atas HP ke tanah)
+        // Y = ~0 (sisi panjang HP sejajar tanah)
+        // Z = ~0 (layar menghadap ke muka)
 
-        if (isTiltedUpOrDown) {
+        // Benar: Flip ke bawah (hadapan ke lantai)
+        // Saat layar menghadap lantai, gravitasi berpindah ke sumbu Z.
+        if (absZ > 6.0) {
           advance('correct');
-        } else if (isTiltedLeftOrRight) {
+        } 
+        // Pass: Geser/Tilt Kiri Kanan (seperti setir mobil)
+        // Saat dimiringkan ke kiri/kanan, gravitasi berpindah ke sumbu Y.
+        else if (absY > 6.0) {
           advance('pass');
         }
       }
 
-      window.addEventListener('deviceorientation', handler);
-      return () => window.removeEventListener('deviceorientation', handler);
+      window.addEventListener('devicemotion', handler);
+      return () => window.removeEventListener('devicemotion', handler);
     }
 
     const cleanup = requestAndListen();
