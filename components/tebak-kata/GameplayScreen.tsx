@@ -100,16 +100,20 @@ export default function GameplayScreen({
       }
 
       function handler(e: DeviceOrientationEvent) {
-        const beta  = e.beta  ?? 90;  // Default upright
-        const gamma = e.gamma ?? 0;   // Default flat
+        const beta  = e.beta  ?? 90;
+        const gamma = e.gamma ?? 0;
 
-        // In Portrait mode:
-        // Upright: beta is around 90, gamma is around 0.
-        // Tilted up/down (face up or face down): beta goes towards 0 or 180.
-        // Tilted left/right: gamma goes towards -90 or 90.
+        const absBeta = Math.abs(beta);
+        const absGamma = Math.abs(gamma);
+
+        // Benar (Atas/Bawah): pitch menjauh dari 90 derajat (tegak) 
+        // Harus miring > 50 derajat agar tidak terlalu sensitif.
+        const isTiltedUpOrDown = absBeta < 40 || absBeta > 140;
         
-        const isTiltedUpOrDown = beta < 45 || beta > 135;
-        const isTiltedLeftOrRight = gamma < -45 || gamma > 45;
+        // Pass (Kiri/Kanan): roll mendekati 90 derajat.
+        // Kita batasi < 135 untuk mencegah "Gimbal lock bug" di mana gamma 
+        // melompat ke 180 derajat saat hp sedikit miring ke depan/belakang.
+        const isTiltedLeftOrRight = absGamma > 45 && absGamma < 135;
 
         if (isTiltedUpOrDown) {
           advance('correct');
