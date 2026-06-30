@@ -231,7 +231,7 @@ export default function GameplayScreen({
                 wordBreak: 'break-word',
               }}
             >
-              {words[currentIndex]}
+              {activeWords[currentIndex]}
             </motion.h2>
           )}
         </AnimatePresence>

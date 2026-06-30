@@ -70,7 +70,7 @@ export default function VotingScreen({ players, onVoteComplete, imposterCount }:
 
               {/* Avatar Emoji */}
               <div className="flex-1 flex items-center justify-center text-[80px] drop-shadow-2xl z-10">
-                 {player.role === 'imposter' ? '😈' : '😎'}
+                 😎
               </div>
 
               <div className="w-full text-center pb-2 z-10 mt-auto">

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { motion, useAnimation, useMotionValue, useTransform } from 'framer-motion';
+import { motion, useAnimation, useMotionValue, useTransform, useDragControls } from 'framer-motion';
 import { ChevronLeft, ChevronUp, Users, UserX } from 'lucide-react';
 import type { Player } from '@/lib/fakeit/gameData';
 
@@ -24,6 +24,7 @@ export default function RoleRevealScreen({
 }: RoleRevealScreenProps) {
   const [hasRevealed, setHasRevealed] = useState(false);
   const controls = useAnimation();
+  const dragControls = useDragControls();
   const y = useMotionValue(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -67,13 +68,21 @@ export default function RoleRevealScreen({
         </svg>
       </div>
 
+      {/* ── Drag hit area ─────────────────────────────── */}
+      {!hasRevealed && (
+        <div 
+          className="absolute inset-x-0 bottom-0 top-24 z-40 touch-none" 
+          onPointerDown={(e) => dragControls.start(e)}
+        />
+      )}
+
       {/* ── Main Content (Scales down when drawer opens) ──────── */}
       <motion.div 
         style={{ scale: mainContentScale, opacity: mainContentOpacity }}
-        className="relative z-10 flex flex-col h-screen"
+        className="relative z-10 flex flex-col h-screen pointer-events-none"
       >
-        <header className="flex items-center px-5 pt-10 pb-4">
-          <button onClick={onBackToSetup} className="p-2 -ml-2 rounded-full hover:bg-black/10 transition">
+        <header className="flex items-center px-5 pt-10 pb-4 pointer-events-auto z-50">
+          <button onClick={onBackToSetup} className="p-2 -ml-2 rounded-full hover:bg-black/10 transition relative z-50">
             <ChevronLeft className="w-8 h-8 text-black" />
           </button>
         </header>
@@ -110,7 +119,7 @@ export default function RoleRevealScreen({
             </p>
             <button
               onClick={onNext}
-              className="w-full max-w-sm py-4 rounded-full bg-black text-white text-2xl font-black shadow-xl hover:scale-105 active:scale-95 transition-all"
+              className="w-full max-w-sm py-4 rounded-full bg-black text-white text-2xl font-black shadow-xl hover:scale-105 active:scale-95 transition-all pointer-events-auto"
             >
               Continue
             </button>
@@ -119,10 +128,10 @@ export default function RoleRevealScreen({
       </motion.div>
 
       {/* ── Interactive Drawer ─────────────────────────────────── */}
-      {!hasRevealed && (
         <motion.div
           ref={containerRef}
           drag="y"
+          dragControls={dragControls}
           dragConstraints={{ top: -400, bottom: 0 }}
           dragElastic={0.2}
           onDragEnd={handleDragEnd}
@@ -161,7 +170,6 @@ export default function RoleRevealScreen({
             Swipe down to hide
           </button>
         </motion.div>
-      )}
     </div>
   );
 }
